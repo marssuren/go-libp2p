@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"math/rand"
+	"runtime"
 	"strings"
 	"sync"
 
@@ -65,6 +66,12 @@ func NewMdnsService(host host.Host, serviceName string, notifee Notifee) *mdnsSe
 }
 
 func (s *mdnsService) Start() error {
+	// 在 Android 平台上完全跳过启动 Mdns 服务以避免权限问题
+	if runtime.GOOS == "android" {
+		log.Info("在 Android 平台上跳过 mDNS 服务启动。")
+		return nil // 阻止服务器和解析器启动
+	}
+
 	if err := s.startServer(); err != nil {
 		return err
 	}
