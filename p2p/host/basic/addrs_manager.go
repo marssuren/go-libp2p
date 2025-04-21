@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"runtime"
 	"slices"
 	"sync"
 	"sync/atomic"
@@ -474,6 +475,50 @@ func (i *interfaceAddrsCache) update(filtered bool) []ma.Multiaddr {
 }
 
 func (i *interfaceAddrsCache) updateUnlocked() {
+	// Skip netroute-based interface discovery on Android to avoid permission issues
+	if runtime.GOOS == "android" {
+		i.filtered = nil
+		i.all = nil
+		ifaceAddrs, err := manet.InterfaceMultiaddrs()
+		if err != nil {
+			log.Errorw("failed to resolve local interface addresses on Android", "error", err)
+			// Fallback to loopback if InterfaceMultiaddrs fails
+			i.filtered = []ma.Multiaddr{manet.IP4Loopback, manet.IP6Loopback}
+			i.all = i.filtered
+			return // Skip the rest of the function
+		}
+
+		// remove link local ipv6 addresses
+		i.all = slices.DeleteFunc(ifaceAddrs, manet.IsIP6LinkLocal)
+		// Use all resolved interface addrs as filtered addrs on Android initially
+		i.filtered = slices.Clone(i.all)
+
+		// Ensure loopback addresses are present
+		hasIPv4Loopback := false
+		hasIPv6Loopback := false
+		for _, addr := range i.all {
+			if addr.Equal(manet.IP4Loopback) {
+				hasIPv4Loopback = true
+			}
+			if addr.Equal(manet.IP6Loopback) {
+				hasIPv6Loopback = true
+			}
+		}
+		if !hasIPv4Loopback {
+			i.all = append(i.all, manet.IP4Loopback)
+			i.filtered = append(i.filtered, manet.IP4Loopback)
+		}
+		if !hasIPv6Loopback {
+			// Check if IPv6 is supported before adding loopback
+			_, err := net.InterfaceByName("lo0") // Or another way to check IPv6 support
+			if err == nil {
+				i.all = append(i.all, manet.IP6Loopback)
+				i.filtered = append(i.filtered, manet.IP6Loopback)
+			}
+		}
+		return // Skip the netroute logic entirely
+	}
+
 	i.filtered = nil
 	i.all = nil
 
