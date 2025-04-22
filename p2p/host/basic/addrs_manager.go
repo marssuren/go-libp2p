@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net"
-	"runtime"
 	"slices"
 	"sync"
 	"sync/atomic"
@@ -475,28 +474,6 @@ func (i *interfaceAddrsCache) update(filtered bool) []ma.Multiaddr {
 }
 
 func (i *interfaceAddrsCache) updateUnlocked() {
-	// Skip all interface discovery on Android, return only loopback
-	if runtime.GOOS == "android" {
-		log.Debug("Skipping all interface discovery on Android, returning loopback addresses only.")
-		// Start with IPv4 loopback
-		i.filtered = []ma.Multiaddr{manet.IP4Loopback}
-		i.all = []ma.Multiaddr{manet.IP4Loopback}
-		// Try to add IPv6 loopback only if IPv6 seems supported
-		_, err := net.InterfaceByName("lo0") // Simple check for loopback interface presence
-		// Or potentially check for any non-loopback IPv6 address using net.Interfaces() if needed,
-		// but InterfaceByName("lo0") is usually sufficient to infer basic capability.
-		if err == nil {
-			// Check if system generally supports IPv6 before adding ::1
-			// This check might need refinement based on Android specifics
-			if _, err6 := net.ResolveIPAddr("ip6", "::1"); err6 == nil {
-				ipv6Loopback := manet.IP6Loopback
-				i.all = append(i.all, ipv6Loopback)
-				i.filtered = append(i.filtered, ipv6Loopback)
-			}
-		}
-		i.lastUpdated = time.Now() // Update timestamp
-		return                     // Skip the rest of the function (including netroute)
-	}
 
 	i.filtered = nil
 	i.all = nil
